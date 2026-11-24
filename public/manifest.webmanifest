@@ -1,0 +1,12 @@
+{
+  "name": "IPC Teleprompter",
+  "short_name": "Teleprompter",
+  "description": "Teleprompter profissional a partir de PDF, preservando as cores das letras.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0e0f12",
+  "theme_color": "#0e0f12",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
