@@ -57,6 +57,18 @@ npm run build    # gera dist/
 Stack: Vite + TypeScript (sem framework) + [pdf.js](https://mozilla.github.io/pdf.js/).
 Funciona offline após a primeira visita (PWA, pode ser “instalado” na tela inicial do celular).
 
-### Deploy
-O workflow `.github/workflows/deploy.yml` publica no GitHub Pages a cada push na `main`
-(em *Settings → Pages*, selecione **Source: GitHub Actions**).
+### Deploy na Vercel
+O projeto já está configurado (`vercel.json`): framework Vite, build `npm run build`, saída `dist/`,
+cache longo para os arquivos com hash e sem cache para o service worker.
+
+**Pelo site (recomendado):**
+1. Acesse [vercel.com/new](https://vercel.com/new) e importe o repositório `ipc-teleprompter`.
+2. Não é preciso alterar nada — clique em **Deploy**.
+3. Cada push na branch principal publica em produção; outras branches geram URLs de prévia.
+
+**Pela linha de comando:**
+```bash
+npm i -g vercel
+vercel          # primeiro deploy (prévia) — responde às perguntas com os padrões
+vercel --prod   # publica em produção
+```
