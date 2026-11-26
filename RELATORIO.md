@@ -26,7 +26,7 @@ Para renderizar de novo: `./projeto/render_all.sh`. Antes disso, rode `projeto/a
 | imagem 2 (1215×717) | `fonte/2-sett.webp` | Sett |
 | imagem 3 (1215×717) | `fonte/3-vayne.webp` | Vayne |
 | imagem 4 (1215×717) | `fonte/4-jax.webp` | Jax |
-| imagem 5 (1215×717) | `fonte/5-yasuo.webp` | Yasuo |
+| nova splash do Yasuo (1215×717), enviada depois | `fonte/5-yasuo-v2.webp` | Yasuo (versão 2 do clipe). A splash anterior, `fonte/5-yasuo.webp`, foi usada só na versão 1 |
 | Letra (enviada na mensagem) | `projeto/tempos.py` | Texto exibido sem alterações |
 
 Os arquivos originais não foram alterados. Nenhuma imagem extra foi usada e nenhum personagem foi gerado por IA.
@@ -78,7 +78,7 @@ Se você notar alguma linha adiantada ou atrasada ao assistir, o ajuste é simpl
   - **Sett:** poeira, brasas e luz quente.
   - **Vayne:** sombras frias deslizando, traços e flashes prateados.
   - **Jax:** a lâmpada na ponta da arma, com o orbe superior como apoio, ganha brilho crescente durante o verso inteiro, como símbolo de esperança. Partículas de luz sobem dela.
-  - **Yasuo:** vento, folhas e pétalas, que se intensificam quando o flow dobra.
+  - **Yasuo (versão 2, nova splash):** vento frio, folhas e brasas em tons de laranja e azul, combinando com a nova arte. A empunhadura da espada brilha, e tudo se intensifica quando o flow dobra.
 - **Refrões:**
   - **Refrão 1:** os painéis entram um a um, uma batida para cada.
   - **Refrão 2:** enquadramento mais fechado nos rostos, entrada do centro para fora e cortes individuais em "Se a porta fecha… / se o mundo pesa…".
