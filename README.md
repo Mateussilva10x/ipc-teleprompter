@@ -38,6 +38,20 @@ Tudo roda no navegador — o PDF não é enviado para nenhum servidor.
 
 No celular: toque para pausar/continuar, arraste para ajustar a posição.
 
+### Controle pelo celular (QR code)
+Clique em **📱 Controle pelo celular** no editor, ou no ícone 📱 do modo ao vivo, e aponte a câmera do
+celular para o QR code. O celular abre uma página de controle com:
+- play/pausa, que também abre o teleprompter com a contagem regressiva;
+- estrofe e linha anterior/próxima, troca de música e velocidade;
+- tamanho da letra, espelhar e zerar o cronômetro;
+- uma área para arrastar e rolar o texto com o dedo;
+- a música atual, a barra de progresso e os tempos decorrido e restante.
+
+A conexão é direta entre os dois aparelhos (WebRTC, via PeerJS), sem servidor próprio. Só o pareamento
+inicial usa o servidor público gratuito do PeerJS. Os dois aparelhos precisam de internet, e a conexão
+funciona melhor na mesma rede Wi-Fi. Se a página do computador for recarregada, o celular reconecta
+sozinho, porque o código é guardado no navegador. **Gerar novo código** invalida o QR anterior.
+
 ### Janela de exibição (segundo monitor / projetor / vidro)
 Em **Janela de exibição ↗** abre-se uma janela só com o texto, sincronizada com a tela
 de controle (mesmo navegador/computador). Arraste-a para o outro monitor e pressione `F`.

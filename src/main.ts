@@ -8,6 +8,7 @@ import {
   BUILTIN_PRESETS, DEFAULTS, FONTS, loadPresets, loadSettings, savePresets, saveSettings, type Settings,
 } from './settings';
 import { displayColor } from './colors';
+import { RemoteHost, qrDataUrl, remoteLink, runRemote, type RemoteMessage, type RemoteState } from './remote';
 import type { Script } from './types';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -25,6 +26,8 @@ let lastFile: { data: Uint8Array; name: string } | null = null;
 
 const app = document.getElementById('app')!;
 const isDisplay = new URLSearchParams(location.search).has('display');
+const remoteId = new URLSearchParams(location.search).get('remote');
+let lastState: PrompterState | null = null;
 
 // ---------------------------------------------------------------- utilidades
 function $(sel: string, root: ParentNode = document) {
@@ -510,6 +513,7 @@ function showEditor() {
         <button class="btn ghost small reimport" ${lastFile ? '' : 'hidden'}>Reimportar</button>
         <button class="btn ghost small find">Localizar e substituir</button>
         <button class="btn ghost small display-win" title="Abre uma janela só com o texto (para segundo monitor/projetor), controlada por esta tela">Janela de exibição ↗</button>
+        <button class="btn ghost small remote-btn" title="Controle o teleprompter pelo celular lendo um QR code">📱 Controle pelo celular<span class="remote-badge"></span></button>
         <button class="btn primary start">▶ Iniciar teleprompter</button>
       </div>
     </header>
@@ -529,6 +533,7 @@ function showEditor() {
   preview.setScript(script);
   preview.onFrame = (a) => channel?.postMessage({ type: 'anchor', anchor: a });
   preview.onState = (st) => {
+    if (!live) lastState = st;
     $('.pv-play').textContent = st.playing ? '⏸ Pausar' : '▶ Testar rolagem';
     $('.pv-info').textContent = `${script!.sections[st.section]?.title ?? ''} · ${Math.round(st.lpm)} l/min · restante ${fmtTime(st.remaining)}`;
   };
@@ -542,6 +547,8 @@ function showEditor() {
   $('.find').onclick = findReplace;
   $('.display-win').onclick = openDisplayWindow;
   $('.start').onclick = () => startLive(preview?.getAnchor());
+  $('.remote-btn').onclick = showRemoteModal;
+  updateRemoteBadges();
   $('.pv-top').onclick = () => preview?.jumpToIndex(0);
   $('.pv-play').onclick = () => (preview?.playing ? preview.pause() : preview?.play());
   bindDrop(document.body);
@@ -608,6 +615,7 @@ function startLive(anchor?: Anchor) {
       <div class="grp">
         <button class="icon-btn mirror" title="Espelhar (M)">⇋</button>
         <button class="icon-btn fs" title="Tela cheia (F)">⛶</button>
+        <button class="icon-btn remote" title="Controle pelo celular">📱<span class="remote-badge"></span></button>
         <button class="icon-btn cfg" title="Configurações">⚙</button>
       </div>
     </div>
@@ -619,7 +627,10 @@ function startLive(anchor?: Anchor) {
   wrap.insertBefore(live.root, wrap.firstChild);
   live.setScript(script);
   live.onFrame = (a) => channel?.postMessage({ type: 'anchor', anchor: a });
-  live.onState = (st) => renderHud(wrap, st);
+  live.onState = (st) => {
+    lastState = st;
+    renderHud(wrap, st);
+  };
   live.onUserScroll = () => pokeHud(wrap);
   live.root.addEventListener('tap', () => {
     live?.toggle();
@@ -641,6 +652,8 @@ function startLive(anchor?: Anchor) {
   q('.more').onclick = () => updateSettings({ visibleLines: Math.min(30, settings.visibleLines + 1) });
   q('.mirror').onclick = () => updateSettings({ mirrorH: !settings.mirrorH });
   q('.fs').onclick = toggleFullscreen;
+  q('.remote').onclick = showRemoteModal;
+  updateRemoteBadges();
   q('.cfg').onclick = () => {
     const d = q('.drawer');
     d.hidden = !d.hidden;
@@ -724,7 +737,62 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && live) requestWakeLock();
 });
 
-// ---------------------------------------------------------------- teclado
+// ---------------------------------------------------------------- comandos (teclado e celular)
+function runCommand(cmd: RemoteMessage['cmd'], arg = 0) {
+  const p = live ?? (isDisplay ? null : preview);
+  const wrap = document.querySelector('.live') as HTMLElement | null;
+  if (wrap) pokeHud(wrap);
+  switch (cmd) {
+    case 'start':
+      if (!live && script) startLive(preview?.getAnchor());
+      return;
+    case 'exit':
+      if (live) exitLive();
+      return;
+    case 'toggle':
+      if (live) live.toggle();
+      else if (remoteToggleStartsLive && script) startLive(preview?.getAnchor());
+      else if (p) p.playing ? p.pause() : p.play();
+      return;
+  }
+  if (!p) return;
+  switch (cmd) {
+    case 'speed':
+      changeSpeed(arg >= 0 ? 1 : -1);
+      break;
+    case 'line':
+      p.jumpLine(arg >= 0 ? 1 : -1);
+      break;
+    case 'stanza':
+      p.jumpStanza(arg >= 0 ? 1 : -1);
+      break;
+    case 'section':
+      if (arg >= 0) p.jumpToSection(p.section + 1);
+      else p.prevSection();
+      break;
+    case 'goto':
+      p.jumpToSection(arg);
+      break;
+    case 'home':
+      p.jumpToIndex(0);
+      break;
+    case 'lines':
+      updateSettings({ visibleLines: Math.max(2, Math.min(30, settings.visibleLines + (arg >= 0 ? 1 : -1))) });
+      break;
+    case 'mirror':
+      updateSettings({ mirrorH: !settings.mirrorH });
+      break;
+    case 'reset':
+      p.resetTimer();
+      break;
+    case 'scroll':
+      p.scrollBy(arg);
+      break;
+  }
+}
+// pelo celular, "play" fora do modo ao vivo abre o teleprompter (com contagem regressiva)
+let remoteToggleStartsLive = false;
+
 document.addEventListener('keydown', (e) => {
   const tgt = e.target as HTMLElement;
   if (tgt.closest('input, select, textarea') && !(tgt as HTMLInputElement).type?.match(/range|checkbox|color/)) return;
@@ -733,82 +801,159 @@ document.addEventListener('keydown', (e) => {
   const wrap = document.querySelector('.live') as HTMLElement | null;
   if (wrap) pokeHud(wrap);
   let handled = true;
-  switch (e.key) {
-    case ' ':
-    case 'Enter':
-      if (live) live.toggle();
-      else p.playing ? p.pause() : p.play();
-      break;
-    case 'ArrowUp':
-      changeSpeed(1);
-      break;
-    case 'ArrowDown':
-      changeSpeed(-1);
-      break;
-    case 'ArrowLeft':
-      p.jumpLine(-1);
-      break;
-    case 'ArrowRight':
-      p.jumpLine(1);
-      break;
-    case 'PageUp':
-      p.jumpStanza(-1);
-      break;
-    case 'PageDown':
-      p.jumpStanza(1);
-      break;
-    case 'Home':
-      p.jumpToIndex(0);
-      break;
-    case 'End':
-      p.jumpToIndex(1e9);
-      break;
-    case 'n':
-    case 'N':
-      p.jumpToSection(p.section + 1);
-      break;
-    case 'p':
-    case 'P':
-      p.prevSection();
-      break;
-    case '+':
-    case '=':
-      updateSettings({ visibleLines: Math.min(30, settings.visibleLines + 1) });
-      break;
-    case '-':
-    case '_':
-      updateSettings({ visibleLines: Math.max(2, settings.visibleLines - 1) });
-      break;
-    case 'm':
-    case 'M':
-      updateSettings({ mirrorH: !settings.mirrorH });
-      break;
-    case 'v':
-    case 'V':
-      updateSettings({ mirrorV: !settings.mirrorV });
-      break;
-    case 'f':
-    case 'F':
-      toggleFullscreen();
-      break;
-    case 'r':
-    case 'R':
-      p.resetTimer();
-      break;
-    case 'h':
-    case 'H':
-      wrap?.classList.toggle('hud-hidden');
-      break;
-    case 'Escape':
-      if (live) exitLive();
-      else handled = false;
-      break;
-    default:
-      if (/^[1-9]$/.test(e.key)) p.jumpToSection(+e.key - 1);
-      else handled = false;
-  }
+  const map: Record<string, [RemoteMessage['cmd'], number?]> = {
+    ' ': ['toggle'], Enter: ['toggle'], ArrowUp: ['speed', 1], ArrowDown: ['speed', -1],
+    ArrowLeft: ['line', -1], ArrowRight: ['line', 1], PageUp: ['stanza', -1], PageDown: ['stanza', 1],
+    Home: ['home'], n: ['section', 1], N: ['section', 1], p: ['section', -1], P: ['section', -1],
+    '+': ['lines', 1], '=': ['lines', 1], '-': ['lines', -1], _: ['lines', -1], m: ['mirror'], M: ['mirror'],
+    r: ['reset'], R: ['reset'],
+  };
+  const m = map[e.key];
+  if (m) runCommand(m[0], m[1] ?? 0);
+  else
+    switch (e.key) {
+      case 'End':
+        p.jumpToIndex(1e9);
+        break;
+      case 'v':
+      case 'V':
+        updateSettings({ mirrorV: !settings.mirrorV });
+        break;
+      case 'f':
+      case 'F':
+        toggleFullscreen();
+        break;
+      case 'h':
+      case 'H':
+        wrap?.classList.toggle('hud-hidden');
+        break;
+      case 'Escape':
+        if (document.querySelector('.modal')) closeRemoteModal();
+        else if (live) exitLive();
+        else handled = false;
+        break;
+      default:
+        if (/^[1-9]$/.test(e.key)) p.jumpToSection(+e.key - 1);
+        else handled = false;
+    }
   if (handled) e.preventDefault();
 });
+
+// ---------------------------------------------------------------- controle pelo celular (host)
+const remote = new RemoteHost();
+remote.getState = (): RemoteState | null => {
+  if (!script) return null;
+  const st = lastState;
+  return {
+    type: 'state',
+    live: !!live,
+    playing: !!st?.playing,
+    countdown: st?.countdown ?? 0,
+    section: st?.section ?? 0,
+    sections: script.sections.map((x) => x.title),
+    speedLabel:
+      settings.speedMode === 'duration' && st ? `${Math.round(st.lpm)} l/min` : `${settings.linesPerMinute} l/min`,
+    lines: settings.visibleLines,
+    mirror: settings.mirrorH,
+    progress: st?.progress ?? 0,
+    elapsed: st?.elapsed ?? 0,
+    remaining: st?.remaining ?? 0,
+    scriptName: script.name,
+  };
+};
+remote.onCommand = (m) => {
+  remoteToggleStartsLive = true;
+  try {
+    runCommand(m.cmd, m.arg ?? 0);
+  } finally {
+    remoteToggleStartsLive = false;
+  }
+};
+remote.onChange = () => {
+  updateRemoteBadges();
+  renderRemoteModal();
+};
+
+function updateRemoteBadges() {
+  document.querySelectorAll<HTMLElement>('.remote-badge').forEach((b) => {
+    b.textContent = remote.connected ? String(remote.connected) : '';
+    b.parentElement?.classList.toggle('remote-on', remote.connected > 0);
+  });
+}
+
+function showRemoteModal() {
+  if (remote.status === 'off' || remote.status === 'error') remote.start();
+  closeRemoteModal();
+  const m = document.createElement('div');
+  m.className = 'modal';
+  m.innerHTML = `<div class="modal-card" role="dialog" aria-label="Controle pelo celular">
+    <button class="icon-btn modal-x" title="Fechar (Esc)">✕</button>
+    <h2>📱 Controle pelo celular</h2>
+    <p class="hint">Aponte a câmera do celular para o QR code. A página de controle abre no navegador do celular.</p>
+    <div class="qr-box"><div class="qr-wait">Gerando…</div></div>
+    <div class="remote-status"></div>
+    <div class="remote-link"></div>
+    <div class="row">
+      <button class="btn small ghost copy-link">Copiar link</button>
+      <button class="btn small ghost renew">Gerar novo código</button>
+      <button class="btn small ghost stop-remote">Desligar</button>
+    </div>
+    <p class="hint small">O celular e o computador precisam estar com internet. Funciona melhor na mesma rede Wi-Fi.</p>
+  </div>`;
+  document.body.appendChild(m);
+  m.addEventListener('click', (e) => e.target === m && closeRemoteModal());
+  $('.modal-x', m).onclick = closeRemoteModal;
+  $('.copy-link', m).onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(remoteLink(remote.id));
+      toast('Link copiado');
+    } catch {
+      prompt('Copie o link:', remoteLink(remote.id));
+    }
+  };
+  $('.renew', m).onclick = () => {
+    remote.renew();
+    toast('Novo código gerado — o QR anterior deixou de funcionar');
+  };
+  $('.stop-remote', m).onclick = () => {
+    remote.stop();
+    closeRemoteModal();
+    toast('Controle pelo celular desligado');
+  };
+  renderRemoteModal();
+}
+
+let qrFor = '';
+async function renderRemoteModal() {
+  const m = document.querySelector('.modal') as HTMLElement | null;
+  if (!m) return;
+  const st = $('.remote-status', m);
+  const box = $('.qr-box', m);
+  if (remote.status === 'ready') {
+    const link = remoteLink(remote.id);
+    if (qrFor !== link || !box.querySelector('img')) {
+      qrFor = link;
+      box.innerHTML = `<img alt="QR code para controlar pelo celular" src="${await qrDataUrl(link)}">`;
+    }
+    $('.remote-link', m).textContent = link;
+    st.className = 'remote-status ' + (remote.connected ? 'ok' : 'wait');
+    st.textContent = remote.connected
+      ? `✅ ${remote.connected} celular(es) conectado(s) — pode fechar esta janela`
+      : '⏳ Aguardando o celular…';
+  } else if (remote.status === 'error') {
+    box.innerHTML = '<div class="qr-wait">—</div>';
+    st.className = 'remote-status err';
+    st.textContent = remote.error;
+  } else {
+    box.innerHTML = '<div class="qr-wait">Gerando…</div>';
+    st.className = 'remote-status wait';
+    st.textContent = 'Preparando a conexão…';
+  }
+}
+
+function closeRemoteModal() {
+  document.querySelector('.modal')?.remove();
+}
 
 // ---------------------------------------------------------------- janela de exibição
 function openDisplayWindow() {
@@ -874,9 +1019,14 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 }
 
 // ---------------------------------------------------------------- início
-if (isDisplay) runDisplay();
-else if (script) showEditor();
-else showHome();
+if (remoteId) runRemote(app, remoteId);
+else if (isDisplay) runDisplay();
+else {
+  if (script) showEditor();
+  else showHome();
+  // reativa automaticamente para o celular reconectar após recarregar a página
+  if (RemoteHost.wasEnabled()) remote.start();
+}
 
 // exposto para testes/depuração
 (window as unknown as { __tp: unknown }).__tp = { get script() { return script; }, get settings() { return settings; }, importData };
